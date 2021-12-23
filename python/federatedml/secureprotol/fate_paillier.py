@@ -96,12 +96,12 @@ class PaillierPublicKey(object):
     def encrypt(self, value, precision=None, random_value=None):
         """Encode and Paillier encrypt a real number value.
         """
-        phi = 2 ** 128
-        cur_max_int = phi // 3 - 1
+        # phi = 2 ** 128
+        # cur_max_int = phi // 3 - 1
         # if not isinstance(value, FixedPointNumber):
         #     encoding = FixedPointNumber.encode(value, self.n, self.max_int, precision)
         if not isinstance(value, FixedPointNumber):
-            encoding = FixedPointNumber.encode(value, phi, cur_max_int)
+            encoding = FixedPointNumber.encode(value)
         else:
             encoding = value
         obfuscator = random_value or 1
@@ -161,11 +161,12 @@ class PaillierPrivateKey(object):
         """the Chinese Remainder Theorem as needed for decryption.
            return the solution modulo n=pq.
        """
-        phi = 2 ** 128
+        # phi = 2 ** 128
+        Q = 293973345475167247070445277780365744413
 
         u = (mp - mq) * self.q_inverse % self.p
         x = (mq + (u * self.q)) % self.public_key.n
-        x = x % phi # not sure
+        x = x % Q # not sure
         return x
 
     def raw_decrypt(self, ciphertext):
@@ -197,8 +198,8 @@ class PaillierPrivateKey(object):
 
         encoded = self.raw_decrypt(encrypted_number.ciphertext(be_secure=False))
 
-        phi = 2 ** 128
-        cur_max_int = phi // 3 - 1
+        # phi = 2 ** 128
+        # cur_max_int = phi // 3 - 1
 
         # encoded = FixedPointNumber(encoded,
         #                      encrypted_number.exponent,
@@ -206,9 +207,7 @@ class PaillierPrivateKey(object):
         #                      self.public_key.max_int)
 
         encoded = FixedPointNumber(encoded,
-                             encrypted_number.exponent,
-                             phi,
-                             cur_max_int)
+                             encrypted_number.exponent)
 
         return encoded
 
@@ -270,24 +269,26 @@ class PaillierEncryptedNumber(object):
     def __mul__(self, scalar):
         """return Multiply by an scalar(such as int, float)
         """
-        phi = 2 ** 128
-        cur_max_int = phi // 3 - 1
+        # phi = 2 ** 128
+        # cur_max_int = phi // 3 - 1
+        Q = 293973345475167247070445277780365744413
+        cur_max_int = Q // 3
         # encode = FixedPointNumber.encode(scalar, self.public_key.n, self.public_key.max_int)
         if isinstance(scalar, FixedPointNumber):
             encode = scalar
         else:
-            encode = FixedPointNumber.encode(scalar, phi, cur_max_int)
+            encode = FixedPointNumber.encode(scalar)
         
         plaintext = encode.encoding
 
-        if plaintext < 0 or plaintext >= phi:
+        if plaintext < 0 or plaintext >= Q:
             raise ValueError("Scalar out of bounds: %i" % plaintext)
 
-        if plaintext >= phi - cur_max_int:
+        if plaintext >= Q - cur_max_int:
             # Very large plaintext, play a sneaky trick using inverses
             neg_c = gmpy_math.invert(self.ciphertext(False), self.public_key.nsquare)
             # neg_scalar = self.public_key.n - plaintext
-            neg_scalar = phi - plaintext
+            neg_scalar = Q - plaintext
             ciphertext = gmpy_math.powmod(neg_c, neg_scalar, self.public_key.nsquare)
         else:
             ciphertext = gmpy_math.powmod(self.ciphertext(False), plaintext, self.public_key.nsquare)
@@ -327,14 +328,14 @@ class PaillierEncryptedNumber(object):
         #                                   self.public_key.max_int,
         #                                   max_exponent=self.exponent)
 
-        phi = 2 ** 128
+        # phi = 2 ** 128
+
+        
 
         if isinstance(scalar, FixedPointNumber):
             encoded = scalar
         else:
             encoded = FixedPointNumber.encode(scalar,
-                                          phi,
-                                          phi // 3 - 1,
                                           max_exponent=self.exponent)
 
         return self.__add_fixpointnumber(encoded)
@@ -342,8 +343,9 @@ class PaillierEncryptedNumber(object):
     def __add_fixpointnumber(self, encoded):
         """return PaillierEncryptedNumber: z = E(x) + FixedPointNumber(y)
         """
-        phi = 2 ** 128
-        if phi != encoded.n:
+        # phi = 2 ** 128
+        Q = 293973345475167247070445277780365744413
+        if Q != encoded.n:
             raise ValueError("Attempted to add numbers encoded against different public keys!")
 
         # their exponents must match, and align.

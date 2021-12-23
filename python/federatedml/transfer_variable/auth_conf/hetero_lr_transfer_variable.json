@@ -140,11 +140,29 @@
     },
     "paillier_pubkey": {
       "src": [
-        "arbiter"
+        "guest", "host"
       ],
       "dst": [
-        "host",
-        "guest"
+        "guest",
+        "host"
+      ]
+    },
+    "share_weights": {
+      "src": [
+        "guest", "host"
+      ],
+      "dst": [
+        "guest",
+        "host"
+      ]
+    },
+    "share_protocol": {
+      "src": [
+        "guest", "host"
+      ],
+      "dst": [
+        "guest",
+        "host"
       ]
     },
     "sqn_sample_index": {

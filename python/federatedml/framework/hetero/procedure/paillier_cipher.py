@@ -29,7 +29,7 @@ class Guest(paillier_keygen_sync.Guest):
         self._register_paillier_keygen(pubkey_transfer=transfer_variables.paillier_pubkey)
 
 
-# class Arbiter(paillier_keygen_sync.Arbiter):
+class Arbiter(paillier_keygen_sync.Arbiter):
 
-#     def register_paillier_cipher(self, transfer_variables):
-#         self._register_paillier_keygen(pubkey_transfer=transfer_variables.paillier_pubkey)
+    def register_paillier_cipher(self, transfer_variables):
+        self._register_paillier_keygen(pubkey_transfer=transfer_variables.paillier_pubkey)

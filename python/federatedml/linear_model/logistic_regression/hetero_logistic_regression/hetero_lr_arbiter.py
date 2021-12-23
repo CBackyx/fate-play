@@ -38,16 +38,18 @@ class HeteroLRArbiter(HeteroBaseArbiter, HeteroLRBase):
         self.mode = consts.HETERO
 
     def fit(self, data_instances=None, validate_data=None):
-        LOGGER.debug("Has loss_history: {}".format(hasattr(self, 'loss_history')))
-        LOGGER.debug("Need one_vs_rest: {}".format(self.need_one_vs_rest))
-        classes = self.one_vs_rest_obj.get_data_classes(data_instances)
-        if len(classes) > 2:
-            self.need_one_vs_rest = True
-            self.need_call_back_loss = False
-            self.one_vs_rest_fit(train_data=data_instances, validate_data=validate_data)
-        else:
-            self.need_one_vs_rest = False
-            super().fit(data_instances, validate_data)
+        pass
+        # LOGGER.debug("Has loss_history: {}".format(hasattr(self, 'loss_history')))
+        # LOGGER.debug("Need one_vs_rest: {}".format(self.need_one_vs_rest))
+        # classes = self.one_vs_rest_obj.get_data_classes(data_instances)
+        # if len(classes) > 2:
+        #     self.need_one_vs_rest = True
+        #     self.need_call_back_loss = False
+        #     self.one_vs_rest_fit(train_data=data_instances, validate_data=validate_data)
+        # else:
+        #     self.need_one_vs_rest = False
+        #     super().fit(data_instances, validate_data)
 
     def fit_binary(self, data_instances, validate_data):
-        super().fit(data_instances, validate_data)
+        pass
+        # super().fit(data_instances, validate_data)

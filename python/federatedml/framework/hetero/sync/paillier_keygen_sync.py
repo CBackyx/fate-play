@@ -18,18 +18,18 @@ from federatedml.secureprotol.encrypt import PaillierEncrypt
 from federatedml.util import consts
 
 
-# class Arbiter(object):
-#     # noinspection PyAttributeOutsideInit
-#     def _register_paillier_keygen(self, pubkey_transfer):
-#         self._pubkey_transfer = pubkey_transfer
+class Arbiter(object):
+    # noinspection PyAttributeOutsideInit
+    def _register_paillier_keygen(self, pubkey_transfer):
+        self._pubkey_transfer = pubkey_transfer
 
-#     def paillier_keygen(self, key_length, suffix=tuple()):
-#         cipher = PaillierEncrypt()
-#         cipher.generate_key(key_length)
-#         pub_key = cipher.get_public_key()
-#         self._pubkey_transfer.remote(obj=pub_key, role=consts.HOST, idx=-1, suffix=suffix)
-#         self._pubkey_transfer.remote(obj=pub_key, role=consts.GUEST, idx=-1, suffix=suffix)
-#         return cipher
+    def paillier_keygen(self, key_length, suffix=tuple()):
+        cipher = PaillierEncrypt()
+        cipher.generate_key(key_length)
+        pub_key = cipher.get_public_key()
+        self._pubkey_transfer.remote(obj=pub_key, role=consts.HOST, idx=-1, suffix=suffix)
+        self._pubkey_transfer.remote(obj=pub_key, role=consts.GUEST, idx=-1, suffix=suffix)
+        return cipher
 
 
 class _Guest(object):
@@ -38,7 +38,7 @@ class _Guest(object):
         self._pubkey_transfer = pubkey_transfer
 
     def gen_paillier_cipher_operator(self, suffix=tuple()):
-        pubkey = self._pubkey_transfer.get(idx=-1, suffix=suffix)
+        pubkey = self._pubkey_transfer.get(idx=1, suffix=suffix)
         cipher = PaillierEncrypt()
         cipher.set_public_key(pubkey)
         return cipher
@@ -56,7 +56,7 @@ class _Host(object):
         self._pubkey_transfer = pubkey_transfer
 
     def gen_paillier_cipher_operator(self, suffix=tuple()):
-        pubkey = self._pubkey_transfer.get(idx=-1, suffix=suffix)
+        pubkey = self._pubkey_transfer.get(idx=0, suffix=suffix)
         cipher = PaillierEncrypt()
         cipher.set_public_key(pubkey)
         return cipher

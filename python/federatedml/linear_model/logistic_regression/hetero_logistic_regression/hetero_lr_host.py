@@ -129,7 +129,7 @@ class HeteroLRHost(HeteroLRBase):
         suffix = ("Init Host Share")
         self.transfer_variable.share_weights.remote(obj=host_model_weights_guest_share, role=consts.GUEST, idx=-1, suffix=suffix)
         suffix = ("Init Guest Share")
-        self.guest_model_weights_host_share=self.transfer_variable.share_weights.get(idx=-1, suffix=suffix)
+        self.guest_model_weights_host_share=self.transfer_variable.share_weights.get(idx=0, suffix=suffix)
 
         while self.n_iter_ < self.max_iter:
             LOGGER.info("iter:" + str(self.n_iter_))
@@ -170,7 +170,7 @@ class HeteroLRHost(HeteroLRBase):
             suffix = ("Deliver Host Share", self.n_iter_)
             self.transfer_variable.share_weights.remote(obj=self.guest_model_weights_host_share, role=consts.GUEST, idx=-1, suffix=suffix)
             suffix = ("Get Guest Share", self.n_iter_)
-            self.host_model_weights_guest_share=self.transfer_variable.share_weights.get(idx=-1, suffix=suffix)
+            self.host_model_weights_guest_share=self.transfer_variable.share_weights.get(idx=0, suffix=suffix)
 
             self.model_weights = self.host_model_weights_host_share.binary_op(self.host_model_weights_guest_share, (lambda d,g: d+g), False)
             self.model_weights.decode()

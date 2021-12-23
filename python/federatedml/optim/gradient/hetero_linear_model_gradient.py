@@ -19,6 +19,7 @@
 import functools
 
 import numpy as np
+import random
 import scipy.sparse as sp
 
 from federatedml.feature.sparse_vector import SparseVector
@@ -31,12 +32,15 @@ from federatedml.linear_model.linear_model_weight import LinearModelWeights
 
 from federatedml.secureprotol.fate_paillier import PaillierEncryptedNumber
 
+from federatedml.secureprotol.fixedpoint import FixedPointNumber
+
 
 class HeteroGradientBase(object):
     def __init__(self):
         self.use_async = False
         self.use_sample_weight = False
         self.fixed_point_encoder = None
+        self.Q = 293973345475167247070445277780365744413
 
     def compute_gradient_procedure(self, *args):
         raise NotImplementedError("Should not call here")
@@ -60,27 +64,31 @@ class HeteroGradientBase(object):
     # label_table = data_instances.mapValues(lambda x: x.label)
     # Y is weight
     def share_protocol1_B(self, Y, cipher, remote_role, suffix):
+        roles = [consts.GUEST, consts.HOST]
         encrypted_Y = LinearModelWeights(cipher.encrypt_list(Y.coef_), False)
         self.transfer_variables.share_protocol.remote(obj=encrypted_Y, role=remote_role, idx=-1, suffix=suffix)
-        encrypted_Z_share = self.transfer_variables.share_protocol.get(idx=-1, suffix=suffix)
+        encrypted_Z_share = self.transfer_variables.share_protocol.get(idx=roles.index(remote_role), suffix=suffix)
         Z_share = encrypted_Z_share.mapValues(cipher.decrypt)
         return Z_share
 
     def share_protocol1_A(self, X, remote_role, suffix):
-        encrypted_Y = self.transfer_variables.share_protocol.get(idx=-1, suffix=suffix)
+        roles = [consts.GUEST, consts.HOST]
+        encrypted_Y = self.transfer_variables.share_protocol.get(idx=roles.index(remote_role), suffix=suffix)
         encrypted_Z = self.compute_Z(X, encrypted_Y)
-        Z_share = encrypted_Z.mapValues(lambda v: np.random.randint(2**128, size=1)[0])
+        Z_share = encrypted_Z.mapValues(lambda v: FixedPointNumber(random.randint(0, self.Q - 1), v.exponent))
         Z_fore = encrypted_Z.join(Z_share, lambda d, g: d - g)
         self.transfer_variables.share_protocol.remote(obj=Z_fore, role=remote_role, idx=-1, suffix=suffix)
         return Z_share
 
-    def share_protocol2_B(self, cipher, suffix):
-        encrypted_Z_share = self.transfer_variables.share_protocol.get(idx=-1, suffix=suffix)
+    def share_protocol2_B(self, cipher, remote_role, suffix):
+        roles = [consts.GUEST, consts.HOST]
+        encrypted_Z_share = self.transfer_variables.share_protocol.get(idx=roles.index(remote_role), suffix=suffix)
         Z_share = encrypted_Z_share.mapValues(cipher.decrypt)
         return Z_share
 
     def share_protocol2_A(self, encrypted_Z, remote_role, suffix):
-        Z_share = encrypted_Z.mapValues(lambda v: np.random.randint(2**128, size=1)[0])
+        roles = [consts.GUEST, consts.HOST]
+        Z_share = encrypted_Z.mapValues(lambda v: FixedPointNumber(random.randint(0, self.Q - 1), v.exponent))
         Z_fore = encrypted_Z.join(Z_share, lambda d, g: d - g)
         self.transfer_variables.share_protocol.remote(obj=Z_fore, role=remote_role, idx=-1, suffix=suffix)
         return Z_share
@@ -370,26 +378,26 @@ class Guest(HeteroGradientBase):
 
         return (guest_delta_grad_guest_share, host_delta_grad_guest_share)
         
-        # self.host_forwards = self.get_host_forward(suffix=current_suffix)
+        # # self.host_forwards = self.get_host_forward(suffix=current_suffix)
 
-        # Compute Guest's partial d
-        self.compute_half_d(data_instances, model_weights, encrypted_calculator,
-                            batch_index, current_suffix)
-        if self.use_async:
-            unilateral_gradient = self._asynchronous_compute_gradient(data_instances, model_weights,
-                                                                      cipher=encrypted_calculator[batch_index],
-                                                                      current_suffix=current_suffix)
-        else:
-            unilateral_gradient = self._centralized_compute_gradient(data_instances, model_weights,
-                                                                     cipher=encrypted_calculator[batch_index],
-                                                                     current_suffix=current_suffix)
+        # # Compute Guest's partial d
+        # self.compute_half_d(data_instances, model_weights, encrypted_calculator,
+        #                     batch_index, current_suffix)
+        # if self.use_async:
+        #     unilateral_gradient = self._asynchronous_compute_gradient(data_instances, model_weights,
+        #                                                               cipher=encrypted_calculator[batch_index],
+        #                                                               current_suffix=current_suffix)
+        # else:
+        #     unilateral_gradient = self._centralized_compute_gradient(data_instances, model_weights,
+        #                                                              cipher=encrypted_calculator[batch_index],
+        #                                                              current_suffix=current_suffix)
 
-        if optimizer is not None:
-            unilateral_gradient = optimizer.add_regular_to_grad(unilateral_gradient, model_weights)
+        # if optimizer is not None:
+        #     unilateral_gradient = optimizer.add_regular_to_grad(unilateral_gradient, model_weights)
 
-        optimized_gradient = self.update_gradient(unilateral_gradient, suffix=current_suffix)
-        # LOGGER.debug(f"Before return, optimized_gradient: {optimized_gradient}")
-        return optimized_gradient
+        # optimized_gradient = self.update_gradient(unilateral_gradient, suffix=current_suffix)
+        # # LOGGER.debug(f"Before return, optimized_gradient: {optimized_gradient}")
+        # return optimized_gradient
 
     def get_host_forward(self, suffix=tuple()):
         host_forward = self.host_forward_transfer.get(idx=-1, suffix=suffix)
@@ -476,11 +484,11 @@ class Host(HeteroGradientBase):
         self.transfer_variables.share_protocol.remote(obj=(enc_z_host_share, enc_z_host_share_square, enc_z_host_share_cube), role=consts.GUEST, idx=-1, suffix=current_suffix)
 
         current_suffix = (n_iter_, batch_index, 3)
-        y_hat_host_share = self.share_protocol2_B(host_encrypted_calculator, current_suffix)
+        y_hat_host_share = self.share_protocol2_B(host_encrypted_calculator, consts.GUEST, current_suffix)
         e_host_share = y_hat_host_share.mapValues(lambda v:v)
 
         current_suffix = (n_iter_, batch_index, 4)
-        guest_gradient_host_share = self.share_protocol2_B(host_encrypted_calculator, current_suffix)
+        guest_gradient_host_share = self.share_protocol2_B(host_encrypted_calculator, consts.GUEST, current_suffix)
 
         host_gradient_host_share = self.compute_gradient(data_instances, e_host_share, False)
 
@@ -495,23 +503,23 @@ class Host(HeteroGradientBase):
 
         return(host_delta_grad_host_share, guest_delta_grad_host_share)
 
-        self.forwards = self.compute_forwards(data_instances, model_weights)
+        # self.forwards = self.compute_forwards(data_instances, model_weights)
 
-        if self.use_async:
-            unilateral_gradient = self._asynchronous_compute_gradient(data_instances,
-                                                                      encrypted_calculator[batch_index],
-                                                                      current_suffix)
-        else:
-            unilateral_gradient = self._centralized_compute_gradient(data_instances,
-                                                                     encrypted_calculator[batch_index],
-                                                                     current_suffix)
+        # if self.use_async:
+        #     unilateral_gradient = self._asynchronous_compute_gradient(data_instances,
+        #                                                               encrypted_calculator[batch_index],
+        #                                                               current_suffix)
+        # else:
+        #     unilateral_gradient = self._centralized_compute_gradient(data_instances,
+        #                                                              encrypted_calculator[batch_index],
+        #                                                              current_suffix)
 
-        if optimizer is not None:
-            unilateral_gradient = optimizer.add_regular_to_grad(unilateral_gradient, model_weights)
+        # if optimizer is not None:
+        #     unilateral_gradient = optimizer.add_regular_to_grad(unilateral_gradient, model_weights)
 
-        optimized_gradient = self.update_gradient(unilateral_gradient, suffix=current_suffix)
-        LOGGER.debug(f"Before return compute_gradient_procedure")
-        return optimized_gradient
+        # optimized_gradient = self.update_gradient(unilateral_gradient, suffix=current_suffix)
+        # LOGGER.debug(f"Before return compute_gradient_procedure")
+        # return optimized_gradient
 
     def compute_sqn_forwards(self, data_instances, delta_s, cipher_operator):
         """

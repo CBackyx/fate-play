@@ -13,9 +13,6 @@
         ],
         "host": [
             10000
-        ],
-        "arbiter": [
-            10000
         ]
     },
     "role_parameters": {
