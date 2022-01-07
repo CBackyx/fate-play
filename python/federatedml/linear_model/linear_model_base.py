@@ -68,7 +68,10 @@ class BaseLinearModel(ModelBase):
         # self.fit_intercept = self.init_param_obj.fit_intercept
         self.batch_size = params.batch_size
         self.max_iter = params.max_iter
-        self.optimizer = optimizer_factory(params)
+
+        self.self_optimizer = optimizer_factory(params)
+        self.remote_optimizer = optimizer_factory(params)
+
         self.converge_func = converge_func_factory(params.early_stop, params.tol)
         self.encrypted_calculator = None
         self.validation_freqs = params.validation_freqs

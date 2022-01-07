@@ -123,19 +123,20 @@ class HeteroLRHost(HeteroLRBase):
         # LOGGER.debug("model_shape: {}, w shape: {}, w: {}".format(model_shape, w.shape, w))
         self.host_model_weights_host_share = LinearModelWeights(w, fit_intercept=self.init_param_obj.fit_intercept)
 
-        self.host_model_weights_host_share.share_encode()
-        host_model_weights_guest_share = self.host_model_weights_host_share.share()
-        # Transfer weights share to host
-        suffix = ("Init Host Share")
+        self.host_model_weights_host_share.share_encode(self.guest_cipher_operator.public_key.n)
+        host_model_weights_guest_share = self.host_model_weights_host_share.share(self.guest_cipher_operator.public_key.n)
+        # Transfer weights share to guest
+        suffix = ("Init Host weights guest share")
         self.transfer_variable.share_weights.remote(obj=host_model_weights_guest_share, role=consts.GUEST, idx=-1, suffix=suffix)
-        suffix = ("Init Guest Share")
+        suffix = ("Init Guest weights host share")
         self.guest_model_weights_host_share=self.transfer_variable.share_weights.get(idx=0, suffix=suffix)
 
         while self.n_iter_ < self.max_iter:
             LOGGER.info("iter:" + str(self.n_iter_))
             batch_data_generator = self.batch_generator.generate_batch_data()
             batch_index = 0
-            self.optimizer.set_iters(self.n_iter_)
+            self.self_optimizer.set_iters(self.n_iter_)
+            self.remote_optimizer.set_iters(self.n_iter_)
             for batch_data in batch_data_generator:
                 # transforms features of raw input 'batch_data_inst' into more representative features 'batch_feat_inst'
                 batch_feat_inst = batch_data
@@ -147,7 +148,8 @@ class HeteroLRHost(HeteroLRBase):
                     self.guest_encrypted_calculator,
                     self.host_model_weights_host_share,
                     self.guest_model_weights_host_share,
-                    self.optimizer, 
+                    self.self_optimizer, 
+                    self.remote_optimizer, 
                     self.n_iter_,
                     batch_index)
                 # LOGGER.debug('optim_host_gradient: {}'.format(optim_host_gradient))
@@ -155,8 +157,20 @@ class HeteroLRHost(HeteroLRBase):
                 # self.gradient_loss_operator.compute_loss(self.model_weights, self.optimizer,
                 #                                          self.n_iter_, batch_index, self.cipher_operator)
 
-                self.host_model_weights_host_share = self.optimizer.update_model(self.host_model_weights_host_share, optim_host_gradient_host_share)
-                self.guest_model_weights_host_share = self.optimizer.update_model(self.guest_model_weights_host_share, optim_guest_gradient_host_share)
+                self.host_model_weights_host_share = self.self_optimizer.update_model(self.host_model_weights_host_share, optim_host_gradient_host_share)
+                self.guest_model_weights_host_share = self.remote_optimizer.update_model(self.guest_model_weights_host_share, optim_guest_gradient_host_share)
+
+                # self.host_model_weights_host_share.coef_ -= optim_host_gradient_host_share
+                # self.guest_model_weights_host_share.coef_ -= optim_guest_gradient_host_share
+
+                # Transfer weights share to host
+                suffix = ("Deliver Host Share", self.n_iter_, batch_index)
+                self.transfer_variable.share_weights.remote(obj=self.guest_model_weights_host_share, role=consts.GUEST, idx=-1, suffix=suffix)
+                suffix = ("Deliver Guest Share", self.n_iter_, batch_index)
+                self.host_model_weights_guest_share=self.transfer_variable.share_weights.get(idx=0, suffix=suffix)
+
+                self.model_weights = self.host_model_weights_host_share.binary_op(self.host_model_weights_guest_share, (lambda d,g: d+g), False)
+                self.model_weights.share_decode()
 
                 # self.model_weights = self.optimizer.update_model(self.model_weights, optim_host_gradient)
                 batch_index += 1
@@ -169,11 +183,11 @@ class HeteroLRHost(HeteroLRBase):
             # Transfer weights share to host
             suffix = ("Deliver Host Share", self.n_iter_)
             self.transfer_variable.share_weights.remote(obj=self.guest_model_weights_host_share, role=consts.GUEST, idx=-1, suffix=suffix)
-            suffix = ("Get Guest Share", self.n_iter_)
+            suffix = ("Deliver Guest Share", self.n_iter_)
             self.host_model_weights_guest_share=self.transfer_variable.share_weights.get(idx=0, suffix=suffix)
 
             self.model_weights = self.host_model_weights_host_share.binary_op(self.host_model_weights_guest_share, (lambda d,g: d+g), False)
-            self.model_weights.decode()
+            self.model_weights.share_decode()
 
             if self.validation_strategy:
                 LOGGER.debug('LR host running validation')

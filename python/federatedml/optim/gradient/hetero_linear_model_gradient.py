@@ -34,13 +34,21 @@ from federatedml.secureprotol.fate_paillier import PaillierEncryptedNumber
 
 from federatedml.secureprotol.fixedpoint import FixedPointNumber
 
+from fate_arch.abc import CTableABC
+
+
+def is_table(v):
+    return isinstance(v, CTableABC)
+
 
 class HeteroGradientBase(object):
     def __init__(self):
         self.use_async = False
         self.use_sample_weight = False
         self.fixed_point_encoder = None
-        self.Q = 293973345475167247070445277780365744413
+        # self.Q = 293973345475167247070445277780365744413
+        self.psi = 0
+        self.transfer_variables = None
 
     def compute_gradient_procedure(self, *args):
         raise NotImplementedError("Should not call here")
@@ -65,39 +73,57 @@ class HeteroGradientBase(object):
     # Y is weight
     def share_protocol1_B(self, Y, cipher, remote_role, suffix):
         roles = [consts.GUEST, consts.HOST]
-        encrypted_Y = LinearModelWeights(cipher.encrypt_list(Y.coef_), False)
+        if is_table(Y):
+            encrypted_Y = Y.mapValues(lambda v: cipher.encrypt(v))
+        else:
+            encrypted_Y = LinearModelWeights(cipher.encrypt_list(Y.coef_), False)
         self.transfer_variables.share_protocol.remote(obj=encrypted_Y, role=remote_role, idx=-1, suffix=suffix)
-        encrypted_Z_share = self.transfer_variables.share_protocol.get(idx=roles.index(remote_role), suffix=suffix)
-        Z_share = encrypted_Z_share.mapValues(cipher.decrypt)
+        # encrypted_Z_share = self.transfer_variables.share_protocol.get(idx=roles.index(remote_role), suffix=suffix)
+        # Z_share = encrypted_Z_share.mapValues(cipher.decrypt)
+        # Z_share = Z_share.mapValues(lambda v: FixedPointNumber.encode(v, n=self.psi))
+        Z_share = self.share_protocol2_B(cipher, remote_role, suffix)
         return Z_share
 
-    def share_protocol1_A(self, X, remote_role, suffix):
+    def share_protocol1_A(self, X, remote_role, suffix, compute_gradient = False):
         roles = [consts.GUEST, consts.HOST]
         encrypted_Y = self.transfer_variables.share_protocol.get(idx=roles.index(remote_role), suffix=suffix)
-        encrypted_Z = self.compute_Z(X, encrypted_Y)
-        Z_share = encrypted_Z.mapValues(lambda v: FixedPointNumber(random.randint(0, self.Q - 1), v.exponent))
-        Z_fore = encrypted_Z.join(Z_share, lambda d, g: d - g)
-        self.transfer_variables.share_protocol.remote(obj=Z_fore, role=remote_role, idx=-1, suffix=suffix)
+        encrypted_Z = self.compute_Z(X, encrypted_Y, compute_gradient)
+        # Z_share = encrypted_Z.mapValues(lambda v: FixedPointNumber.rand_number_generator(self.psi))
+        # Z_fore = encrypted_Z.join(Z_share, lambda d, g: d - g)
+        # self.transfer_variables.share_protocol.remote(obj=Z_fore, role=remote_role, idx=-1, suffix=suffix)
+        Z_share = self.share_protocol2_A(encrypted_Z, remote_role, suffix)
         return Z_share
 
     def share_protocol2_B(self, cipher, remote_role, suffix):
         roles = [consts.GUEST, consts.HOST]
         encrypted_Z_share = self.transfer_variables.share_protocol.get(idx=roles.index(remote_role), suffix=suffix)
-        Z_share = encrypted_Z_share.mapValues(cipher.decrypt)
+        if is_table(encrypted_Z_share):
+            Z_share = encrypted_Z_share.mapValues(cipher.decrypt)
+            Z_share = Z_share.mapValues(lambda v: FixedPointNumber.encode(v, n=self.psi))
+        else:
+            Z_share = cipher.decrypt_list(encrypted_Z_share)
+            Z_share = np.array([FixedPointNumber.encode(v, n=self.psi) for v in Z_share])
         return Z_share
 
     def share_protocol2_A(self, encrypted_Z, remote_role, suffix):
         roles = [consts.GUEST, consts.HOST]
-        Z_share = encrypted_Z.mapValues(lambda v: FixedPointNumber(random.randint(0, self.Q - 1), v.exponent))
-        Z_fore = encrypted_Z.join(Z_share, lambda d, g: d - g)
+        if is_table(encrypted_Z):
+            Z_share = encrypted_Z.mapValues(lambda v: FixedPointNumber.rand_number_generator(self.psi))
+            Z_fore = encrypted_Z.join(Z_share, lambda d, g: d - g)
+        else:
+            Z_share = np.array([FixedPointNumber.rand_number_generator(self.psi) for v in encrypted_Z])
+            Z_fore = encrypted_Z - Z_share
         self.transfer_variables.share_protocol.remote(obj=Z_fore, role=remote_role, idx=-1, suffix=suffix)
         return Z_share
 
-    def compute_Z(self, X, Y):
+    def compute_Z(self, X, Y, compute_gradient=False):
         """
         Z = X[Y]
         """
-        Z = X.mapValues(lambda v: fate_operator.vec_dot(v.features, Y.coef_))
+        if compute_gradient:
+            Z = self.compute_gradient(X, Y, False)
+        else:
+            Z = X.mapValues(lambda v: fate_operator.vec_dot(v.features, Y.coef_))
         return Z
 
 
@@ -178,9 +204,9 @@ class HeteroGradientBase(object):
                 # g = (feature * 2 ** floating_point_precision).astype("int") * d
                 g = fixed_point_encoder.encode(feature) * d
                 
-                if isinstance(d, PaillierEncryptedNumber):
-                    LOGGER.info("---->ForeGradient: d {}".format(d.exponent))
-                    LOGGER.info("---->Gradient: g {}".format(g[0].exponent))
+                # if isinstance(d, PaillierEncryptedNumber):
+                #     LOGGER.info("---->ForeGradient: d {}".format(d.exponent))
+                #     LOGGER.info("---->Gradient: g {}".format(g[0].exponent))
             else:
                 g = feature * d
             if all_g is None:
@@ -190,11 +216,11 @@ class HeteroGradientBase(object):
         if all_g is None:
             return all_g
         elif fixed_point_encoder:
-            if isinstance(all_g[0], PaillierEncryptedNumber):
-                LOGGER.info("---->Gradient: before div decode all_g {}".format(all_g[0].exponent))
+            # if isinstance(all_g[0], PaillierEncryptedNumber):
+            #     LOGGER.info("---->Gradient: before div decode all_g {}".format(all_g[0].exponent))
             all_g = fixed_point_encoder.decode(all_g)
-            if isinstance(all_g[0], PaillierEncryptedNumber):
-                LOGGER.info("---->Gradient: after div decode all_g {}".format(all_g[0].exponent))
+            # if isinstance(all_g[0], PaillierEncryptedNumber):
+            #     LOGGER.info("---->Gradient: after div decode all_g {}".format(all_g[0].exponent))
         return all_g
 
     def compute_gradient(self, data_instances, fore_gradient, fit_intercept):
@@ -231,19 +257,19 @@ class HeteroGradientBase(object):
                                   fixed_point_encoder=self.fixed_point_encoder,
                                   is_sparse=is_sparse)
             gradient_sum = feat_join_grad.applyPartitions(f)
-            LOGGER.info("hahahha1--> {}".format(gradient_sum.take(1)[0]))
-            if isinstance(gradient_sum.take(1)[0][1][0], PaillierEncryptedNumber):
-                LOGGER.info("---->gradient_sum.take(1)[0][1][0]: exponent {}".format(gradient_sum.take(1)[0][1][0].exponent))
+            # LOGGER.info("hahahha1--> {}".format(gradient_sum.take(1)[0]))
+            # if isinstance(gradient_sum.take(1)[0][1][0], PaillierEncryptedNumber):
+            #     LOGGER.info("---->gradient_sum.take(1)[0][1][0]: exponent {}".format(gradient_sum.take(1)[0][1][0].exponent))
             
             gradient_sum = gradient_sum.reduce(lambda x, y: x + y)
-            LOGGER.info("hahahha2--> {}".format(type(gradient_sum)))
+            # LOGGER.info("hahahha2--> {}".format(type(gradient_sum)))
             if fit_intercept:
                 # bias_grad = np.sum(fore_gradient)
                 bias_grad = fore_gradient.reduce(lambda x, y: x + y)
                 gradient_sum = np.append(gradient_sum, bias_grad)
 
-            if isinstance(gradient_sum[0], PaillierEncryptedNumber):
-                LOGGER.info("---->GradientSum[0]: exponent {}".format(gradient_sum[0].exponent))
+            # if isinstance(gradient_sum[0], PaillierEncryptedNumber):
+            #     LOGGER.info("---->GradientSum[0]: exponent {}".format(gradient_sum[0].exponent))
             gradient = gradient_sum / data_count
 
         else:
@@ -260,10 +286,10 @@ class HeteroGradientBase(object):
 
             gradient = gradient_partition / data_count
 
-        for x in gradient:
-            LOGGER.info("---->Gradient: Type {} value {}".format(type(x), x))
-            if isinstance(x, PaillierEncryptedNumber):
-                LOGGER.info("---->Gradient: exponent {}".format(x.exponent))
+        # for x in gradient:
+        #     LOGGER.info("---->Gradient: Type {} value {}".format(type(x), x))
+        #     if isinstance(x, PaillierEncryptedNumber):
+        #         LOGGER.info("---->Gradient: exponent {}".format(x.exponent))
 
         return gradient
 
@@ -316,7 +342,7 @@ class Guest(HeteroGradientBase):
         return unilateral_gradient
 
     def compute_gradient_procedure(self, data_instances, guest_encrypted_calculator, host_encrypted_calculator, 
-                                    guest_model_weights_guest_share, host_model_weights_guest_share, optimizer,
+                                    guest_model_weights_guest_share, host_model_weights_guest_share, self_optimizer, remote_optimizer,
                                    n_iter_, batch_index, offset=None):
         """
           Linear model gradient procedure
@@ -330,6 +356,9 @@ class Guest(HeteroGradientBase):
 
           Step 4: Send unilateral gradients to arbiter and received the optimized and decrypted gradient.
         """
+
+        self.psi = guest_encrypted_calculator.public_key.n
+
         current_suffix = (n_iter_, batch_index, 0)
 
         host_z_guest_share = self.share_protocol1_B(host_model_weights_guest_share, guest_encrypted_calculator, consts.HOST, current_suffix)
@@ -345,9 +374,16 @@ class Guest(HeteroGradientBase):
         z_guest_share_square = z_guest_share.mapValues(lambda v: v * v)
         z_guest_share_cube = z_guest_share.mapValues(lambda v: v * v * v)
 
-        current_suffix = (n_iter_, batch_index, 2)
+        roles = [consts.GUEST, consts.HOST]
+        current_suffix = (n_iter_, batch_index, 2, 1)
+        enc_z_host_share  = self.transfer_variables.share_protocol.get(idx=roles.index(consts.HOST), suffix=current_suffix)
+        current_suffix = (n_iter_, batch_index, 2, 2)
+        enc_z_host_share_square = self.transfer_variables.share_protocol.get(idx=roles.index(consts.HOST), suffix=current_suffix)
+        current_suffix = (n_iter_, batch_index, 2, 3)
+        enc_z_host_share_cube  = self.transfer_variables.share_protocol.get(idx=roles.index(consts.HOST), suffix=current_suffix)
 
-        enc_z_host_share, enc_z_host_share_square, enc_z_host_share_cube  = self.transfer_variables.share_protocol.get(idx=-1, suffix=current_suffix)
+        # LOGGER.debug(f"z_guest_share type {type(z_guest_share._table)}")
+        # LOGGER.debug(f"enc_z_host_share_square type {type(enc_z_host_share_square._table)}")
 
         enc_z_cube_1 = enc_z_host_share_square.join(z_guest_share, lambda d, g: d * g * 3)
         enc_z_cube_2 = enc_z_host_share.join(z_guest_share_square, lambda d, g: d * g * 3)
@@ -356,7 +392,19 @@ class Guest(HeteroGradientBase):
         enc_z_cube = enc_z_cube.join(enc_z_cube_2, lambda d, g: d + g)
         enc_z = enc_z_host_share.join(z_guest_share, lambda d, g: d + g)
 
-        enc_y_hat = enc_z_cube.join(enc_z, lambda d, g: d * (-0.004) + g * (0.197) + 0.5)
+        enc_y_hat_minimax = enc_z_cube.join(enc_z, lambda d, g: d * (-0.004) + g * (0.197) + 0.5)
+        # sigmoid_z = complete_z * 0.25 + 0.5
+        enc_y_hat = enc_z_cube.join(enc_z, lambda d, g: g * (0.25) + 0.5)
+
+        # Test reveal enc_y_hat
+        current_suffix = (n_iter_, batch_index, "test enc_y_hat_minimax")
+        enc_y_hat_minimax = enc_y_hat_minimax.join(enc_z, lambda d, g: [g, d])
+        self.transfer_variables.share_protocol.remote(obj=enc_y_hat_minimax, role=consts.HOST, idx=-1, suffix=current_suffix)
+
+        current_suffix = (n_iter_, batch_index, "test enc_y_hat_Taylor")
+        enc_y_hat_taylor = enc_y_hat.join(enc_z, lambda d, g: [g, d])
+        self.transfer_variables.share_protocol.remote(obj=enc_y_hat_taylor, role=consts.HOST, idx=-1, suffix=current_suffix)
+
         enc_e = enc_y_hat.join(data_instances, lambda d, g: d - g.label)
 
         current_suffix = (n_iter_, batch_index, 3)
@@ -373,8 +421,8 @@ class Guest(HeteroGradientBase):
         host_gradient_guest_share = self.share_protocol1_B(e_guest_share, guest_encrypted_calculator, consts.HOST, current_suffix)
 
         # Apply gradient learning rate
-        host_delta_grad_guest_share = optimizer.apply_gradients(host_gradient_guest_share)
-        guest_delta_grad_guest_share = optimizer.apply_gradients(guest_gradient_guest_share)
+        host_delta_grad_guest_share = remote_optimizer.apply_gradients(host_gradient_guest_share)
+        guest_delta_grad_guest_share = self_optimizer.apply_gradients(guest_gradient_guest_share)
 
         return (guest_delta_grad_guest_share, host_delta_grad_guest_share)
         
@@ -453,7 +501,7 @@ class Host(HeteroGradientBase):
 
     def compute_gradient_procedure(self, data_instances, host_encrypted_calculator, guest_encrypted_calculator, 
                                     host_model_weights_host_share, guest_model_weights_host_share,
-                                   optimizer,
+                                   self_optimizer, remote_optimizer,
                                    n_iter_, batch_index):
         """
         Linear model gradient procedure
@@ -462,6 +510,9 @@ class Host(HeteroGradientBase):
 
 
         """
+        guest_encrypted_calculator = guest_encrypted_calculator[batch_index]
+        self.psi = guest_encrypted_calculator.encrypter.public_key.n
+
         host_z_host_share = self.compute_Z(data_instances, host_model_weights_host_share)
 
         current_suffix = (n_iter_, batch_index, 0)
@@ -479,9 +530,32 @@ class Host(HeteroGradientBase):
         enc_z_host_share_square = z_host_share.mapValues(lambda v: host_encrypted_calculator.encrypt(v * v))
         enc_z_host_share_cube = z_host_share.mapValues(lambda v: host_encrypted_calculator.encrypt(v * v * v))
 
-        current_suffix = (n_iter_, batch_index, 2)
+        current_suffix = (n_iter_, batch_index, 2, 1)
+        self.transfer_variables.share_protocol.remote(obj=enc_z_host_share, role=consts.GUEST, idx=-1, suffix=current_suffix)
+        current_suffix = (n_iter_, batch_index, 2, 2)
+        self.transfer_variables.share_protocol.remote(obj=enc_z_host_share_square, role=consts.GUEST, idx=-1, suffix=current_suffix)
+        current_suffix = (n_iter_, batch_index, 2, 3)
+        self.transfer_variables.share_protocol.remote(obj=enc_z_host_share_cube, role=consts.GUEST, idx=-1, suffix=current_suffix)
 
-        self.transfer_variables.share_protocol.remote(obj=(enc_z_host_share, enc_z_host_share_square, enc_z_host_share_cube), role=consts.GUEST, idx=-1, suffix=current_suffix)
+        # Test reveal enc_y_hat
+        current_suffix = (n_iter_, batch_index, "test enc_y_hat_minimax")
+        tmp_enc_y_hat_minimax = self.transfer_variables.share_protocol.get(idx=0, suffix=current_suffix)
+        tmp_y_hat_minimax = tmp_enc_y_hat_minimax.mapValues(host_encrypted_calculator.decrypt_list)
+
+        current_suffix = (n_iter_, batch_index, "test enc_y_hat_Taylor")
+        tmp_enc_y_hat_taylor = self.transfer_variables.share_protocol.get(idx=0, suffix=current_suffix)
+        tmp_y_hat_taylor = tmp_enc_y_hat_taylor.mapValues(host_encrypted_calculator.decrypt_list)
+
+        LOGGER.debug("tmp_y_hat_minimax: ")
+        tmp_y_hat_minimax = tmp_y_hat_minimax.take(10)
+        for x in tmp_y_hat_minimax:
+            LOGGER.debug(f"{x[1]}, {(-0.004 )* x[1][0] ** 3 + 0.197 * x[1][0] + 0.5}")
+
+        LOGGER.debug("tmp_y_hat_Taylor: ")
+        tmp_y_hat_taylor = tmp_y_hat_taylor.take(10)
+        for x in tmp_y_hat_taylor:
+            LOGGER.debug(f"{x[1]}, {0.25 * x[1][0] + 0.5}")
+        
 
         current_suffix = (n_iter_, batch_index, 3)
         y_hat_host_share = self.share_protocol2_B(host_encrypted_calculator, consts.GUEST, current_suffix)
@@ -494,12 +568,13 @@ class Host(HeteroGradientBase):
 
         current_suffix = (n_iter_, batch_index, 5)
 
-        host_gradient_host_share_new = self.share_protocol1_A(data_instances, consts.GUEST, current_suffix)
-        host_gradient_host_share = host_gradient_host_share.join(host_gradient_host_share_new, lambda d, g: d + g)
+        host_gradient_host_share_new = self.share_protocol1_A(data_instances, consts.GUEST, current_suffix, compute_gradient=True)
+        # host_gradient_host_share = host_gradient_host_share.join(host_gradient_host_share_new, lambda d, g: d + g)
+        host_gradient_host_share = host_gradient_host_share + host_gradient_host_share_new
 
         # Apply gradient learning rate
-        host_delta_grad_host_share = optimizer.apply_gradients(host_gradient_host_share)
-        guest_delta_grad_host_share = optimizer.apply_gradients(guest_gradient_host_share)
+        host_delta_grad_host_share = self_optimizer.apply_gradients(host_gradient_host_share)
+        guest_delta_grad_host_share = remote_optimizer.apply_gradients(guest_gradient_host_share)
 
         return(host_delta_grad_host_share, guest_delta_grad_host_share)
 

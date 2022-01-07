@@ -26,6 +26,7 @@ from federatedml.util.fate_operator import reduce_add, vec_dot
 
 class Guest(hetero_linear_model_gradient.Guest, loss_sync.Guest):
     def register_gradient_procedure(self, transfer_variables):
+        self.transfer_variables = transfer_variables
         self._register_gradient_sync(transfer_variables.host_forward_dict,
                                      transfer_variables.fore_gradient,
                                      transfer_variables.guest_gradient,
@@ -126,6 +127,7 @@ class Guest(hetero_linear_model_gradient.Guest, loss_sync.Guest):
 
 class Host(hetero_linear_model_gradient.Host, loss_sync.Host):
     def register_gradient_procedure(self, transfer_variables):
+        self.transfer_variables = transfer_variables
         self._register_gradient_sync(transfer_variables.host_forward_dict,
                                      transfer_variables.fore_gradient,
                                      transfer_variables.host_gradient,

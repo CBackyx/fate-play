@@ -9,10 +9,13 @@
     },
     "role": {
         "guest": [
-            10000
+            9999
         ],
         "host": [
             10000
+        ],
+        "arbiter": [
+            10001
         ]
     },
     "role_parameters": {
@@ -99,11 +102,11 @@
     },
     "algorithm_parameters": {
         "hetero_lr_0": {
-            "penalty": "L2",
-            "optimizer": "nesterov_momentum_sgd",
+            "penalty": "None",
+            "optimizer": "sgd",
             "tol": 0.0001,
             "alpha": 0.01,
-            "max_iter": 2,
+            "max_iter": 10,
             "early_stop": "weight_diff",
             "batch_size": -1,
             "learning_rate": 0.15,

@@ -32,6 +32,7 @@ class LinearModelWeights(ListWeights):
         # self.max_int = self.phi // 3 - 1
         self.precision = 2 ** 8
         self.Q = 293973345475167247070445277780365744413
+        self.psi = 2**1000
 
         l = np.array(l)
         if (not isinstance(l[0], PaillierEncryptedNumber)) and (not isinstance(l[0], FixedPointNumber)):
@@ -87,23 +88,25 @@ class LinearModelWeights(ListWeights):
     #             x = (x - self.phi) / 1000
     #     self._weights = np.vectorize(decode)(self._weights)
 
-    def share_encode(self):
+    def share_encode(self, psi):
+        self.psi = psi
         if np.max(np.abs(self._weights)) > 1e8:
             raise RuntimeError("The model weights are overflow before encoding")        
         def encode(x):
             # return FixedPointNumber.encode(x, self.phi, self.phi // 3 - 1, precision=self.precision)
-            return FixedPointNumber.encode(x, precision=self.precision)
+            # return FixedPointNumber.encode(x, precision=self.precision)
+            return FixedPointNumber.encode(x, n=psi)
         self._weights = np.vectorize(encode)(self._weights)
 
     def share_decode(self):
-        if np.max(np.abs(self._weights)) >= self.Q:
-            raise RuntimeError("The encoded model weights are unmoded") 
+        # if np.max(np.abs(self._weights)) >= self.psi:
+        #     raise RuntimeError("The encoded model weights are unmoded") 
         def decode(x):
             return x.decode()
         self._weights = np.vectorize(decode)(self._weights)
 
-    def share(self):
-        share_weights = np.array([FixedPointNumber(random.randint(0, self.Q - 1), x.exponent) for x in self._weights])
+    def share(self, psi):
+        share_weights = np.array([FixedPointNumber.rand_number_generator(psi) for x in self._weights])
         # for i in range(self._weights.shape[0]):
         #     self._weights[i].encoding = (self._weights[i].encoding - share_weights[i].encoding) % self.Q
         # self._weights = np.array(self._weights - share_weights)
