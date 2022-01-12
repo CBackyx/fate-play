@@ -52,7 +52,7 @@ class HeteroLRGuest(HeteroLRBase):
         """
         data_instance = copy.deepcopy(data_instance)
         if data_instance.label != 1:
-            data_instance.label = -1
+            data_instance.label = 0 # Edit label
         return data_instance
 
     def fit(self, data_instances, validate_data=None):

@@ -394,7 +394,9 @@ class Guest(HeteroGradientBase):
 
         enc_y_hat_minimax = enc_z_cube.join(enc_z, lambda d, g: d * (-0.004) + g * (0.197) + 0.5)
         # sigmoid_z = complete_z * 0.25 + 0.5
-        enc_y_hat = enc_z_cube.join(enc_z, lambda d, g: g * (0.25) + 0.5)
+        enc_y_hat_taylor = enc_z_cube.join(enc_z, lambda d, g: g * (0.25) + 0.5)
+
+        enc_y_hat = enc_z_cube.join(enc_z, lambda d, g: d * (-0.004) + g * (0.197) + 0.5)
 
         # Test reveal enc_y_hat
         current_suffix = (n_iter_, batch_index, "test enc_y_hat_minimax")
@@ -402,8 +404,14 @@ class Guest(HeteroGradientBase):
         self.transfer_variables.share_protocol.remote(obj=enc_y_hat_minimax, role=consts.HOST, idx=-1, suffix=current_suffix)
 
         current_suffix = (n_iter_, batch_index, "test enc_y_hat_Taylor")
-        enc_y_hat_taylor = enc_y_hat.join(enc_z, lambda d, g: [g, d])
+        enc_y_hat_taylor = enc_y_hat_taylor.join(enc_z, lambda d, g: [g, d])
         self.transfer_variables.share_protocol.remote(obj=enc_y_hat_taylor, role=consts.HOST, idx=-1, suffix=current_suffix)
+
+        tmp_labels = data_instances.mapValues(lambda v: v.label)
+        LOGGER.debug("tmp_labels: ")
+        tmp_labels = tmp_labels.take(10)
+        for x in tmp_labels:
+            LOGGER.debug(f"{x[1]}")        
 
         enc_e = enc_y_hat.join(data_instances, lambda d, g: d - g.label)
 
